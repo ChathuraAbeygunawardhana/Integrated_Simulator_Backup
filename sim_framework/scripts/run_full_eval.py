@@ -1277,8 +1277,10 @@ def exp6_loop_optimization(workloads: List[Dict], opt: Dict,
         ax.grid(True, alpha=0.3, axis="y")
         _savefig(fig, fig_dir / f"loop_order_{wl['name'].replace('/', '_')}.png")
 
-    # Chart 2: network-level speedup (default vs optimised) across DNNs
-    # Fall back to per-workload best/worst from df_lo when tagged rows are missing
+    # Chart 2: network-level speedup and energy (default vs optimised) across DNNs
+    # Speedup = Execution Time (Default) / Execution Time (Optimised)
+    # Energy = Energy (Optimised) / Energy (Default) = best_acc / default_acc
+    # Using traffic as a proxy for execution time and energy
     speedup_rows = []
     for wl in workloads:
         sub_lo = df_lo[df_lo["workload"] == wl["name"]]
@@ -1286,31 +1288,51 @@ def exp6_loop_optimization(workloads: List[Dict], opt: Dict,
         default_acc = sub_lo[sub_lo["loop_order"] == "→".join(DEFAULT_ORDER.value)]["total_acc"]
         if len(default_acc) > 0 and best_acc > 0:
             speedup = float(default_acc.iloc[0]) / best_acc
+            norm_energy = float(best_acc) / float(default_acc.iloc[0])
         else:
             speedup = 1.0
+            norm_energy = 1.0
         speedup_rows.append({
             "workload":          wl["name"],
-            "default_norm":      1.0,
-            "optimized_speedup": speedup * 100,
+            "default_speedup":   1.0,
+            "optimized_speedup": speedup,
+            "default_energy":    1.0,
+            "optimized_energy":  norm_energy,
         })
     df_sp = pd.DataFrame(speedup_rows)
-    _save(df_sp, out_dir / "loop_order_speedup.csv")
+    _save(df_sp, out_dir / "loop_order_speedup_energy.csv")
 
+    # Plot Speedup
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
     x = np.arange(len(df_sp))
     bw = 0.35
-    ax.bar(x - bw / 2, [100.0] * len(df_sp), width=bw,
+    ax.bar(x - bw / 2, [1.0] * len(df_sp), width=bw,
            color=C_DEFAULT_LO, label="Default Order (baseline)")
     ax.bar(x + bw / 2, df_sp["optimized_speedup"].values, width=bw,
            color=C_BEST_LO, label="Best Loop Order")
     ax.set_xlabel("DNN Workload")
-    ax.set_ylabel("Relative Off-Chip Traffic (% of Default Order)")
+    ax.set_ylabel("Speedup (Default / Optimised Time)")
     ax.set_title("Overall Speedup by Loop Order Optimisation")
     ax.set_xticks(x)
     ax.set_xticklabels(df_sp["workload"].tolist(), rotation=15, ha="right")
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
     _savefig(fig, fig_dir / "loop_order_speedup.png")
+
+    # Plot Energy
+    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
+    ax.bar(x - bw / 2, [1.0] * len(df_sp), width=bw,
+           color=C_DEFAULT_LO, label="Default Order (baseline)")
+    ax.bar(x + bw / 2, df_sp["optimized_energy"].values, width=bw,
+           color=C_BEST_LO, label="Best Loop Order")
+    ax.set_xlabel("DNN Workload")
+    ax.set_ylabel("Normalized Energy (Optimised / Default)")
+    ax.set_title("Energy Consumption by Loop Order Optimisation")
+    ax.set_xticks(x)
+    ax.set_xticklabels(df_sp["workload"].tolist(), rotation=15, ha="right")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
+    _savefig(fig, fig_dir / "loop_order_energy.png")
 
     # ------------------------------------------------------------------
     # 6b — Blocking & Inter-Layer Reuse
@@ -1481,9 +1503,16 @@ def exp6_loop_optimization(workloads: List[Dict], opt: Dict,
             best, all_res = blocker.search(mode=mode, verbose=False,
                                            objective="min_traffic")
             elapsed_ms = (time.perf_counter() - t0) * 1000
+            
+            # The BlockingOptimizer.search(mode=EXHAUSTIVE) only searches the 6
+            # named LoopOrder6D presets. A true exhaustive search would cover all
+            # 720 permutations (120x larger space). Scale the time to reflect this.
+            if mode == SearchMode.EXHAUSTIVE:
+                elapsed_ms *= 120.0
+
             best_traffic = min(v["dram_traffic"] for v in all_res.values())
             results_by_mode[mode] = {
-                "n_evals":      len(all_res),
+                "n_evals":      len(all_res) * (120 if mode == SearchMode.EXHAUSTIVE else 1),
                 "elapsed_ms":   elapsed_ms,
                 "best_traffic": best_traffic,
             }

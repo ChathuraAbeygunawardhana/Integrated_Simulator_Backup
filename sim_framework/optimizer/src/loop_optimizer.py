@@ -218,8 +218,123 @@ class LoopOptimizer:
         return iterations
 
     # ------------------------------------------------------------------
-    # Memory-access analysis
+    # Memory-access analysis (analytical DRAM traffic model)
     # ------------------------------------------------------------------
+    @staticmethod
+    def _compute_dram_traffic(
+        order: Tuple[str, ...],
+        k: int, c: int, kh: int, kw: int, h_in: int, w_in: int,
+        tile_config: "LoopTileConfig",
+    ) -> Dict:
+        """
+        Analytical DRAM-traffic model that accounts for loop ordering.
+
+        For a 6-deep tiled loop nest, each data tensor (weights, inputs,
+        outputs) has a set of dimensions it depends on.  When a loop
+        iterating over a dimension the tensor does NOT depend on is placed
+        between (interleaved with) the tensor's own dimensions, every
+        iteration of that foreign loop evicts the tensor from scratchpad
+        and forces a full reload.
+
+        The number of DRAM loads for a tensor is:
+
+            loads = product_of_tile_counts_for_own_dims
+                    × product_of_tile_counts_for_foreign_dims_that_are_interleaved
+
+        A foreign dimension is "interleaved" if it appears between the
+        outermost and innermost of the tensor's own dimensions in the
+        loop order.
+
+        Example: order K→H_in→C→KH→KW→W_in
+          Weight dims = {K, C, KH, KW}
+            outermost weight dim: K (pos 0), innermost: KW (pos 4)
+            H_in (pos 1) is between them → interleaved
+            W_in (pos 5) is below → not interleaved
+            weight_reload = n_tiles["H_in"] = ceil(14/4) = 4
+
+          Input dims = {C, KH, KW, H_in, W_in}
+            outermost: H_in (pos 1), innermost: W_in (pos 5)
+            K (pos 0) is above → not interleaved (loaded before inputs)
+            input_reload = 1
+
+          Output dims = {K, H_in, W_in}
+            outermost: K (pos 0), innermost: W_in (pos 5)
+            C(2),KH(3),KW(4) are between → interleaved
+            output_reload = n_tiles["C"] * n_tiles["KH"] * n_tiles["KW"]
+        """
+        import math as _math
+
+        h_out = max(1, h_in - kh + 1)
+        w_out = max(1, w_in - kw + 1)
+
+        # Number of tile-iterations along each dimension
+        n_tiles = {
+            "K":    max(1, _math.ceil(k / tile_config.tile_k)),
+            "C":    max(1, _math.ceil(c / tile_config.tile_c)),
+            "KH":   max(1, kh),
+            "KW":   max(1, kw),
+            "H_in": max(1, _math.ceil(h_in / tile_config.tile_hin)),
+            "W_in": max(1, _math.ceil(w_in / tile_config.tile_win)),
+        }
+
+        # Tensor dimension dependencies
+        weight_dims = {"K", "C", "KH", "KW"}
+        input_dims  = {"C", "KH", "KW", "H_in", "W_in"}
+        output_dims = {"K", "H_in", "W_in"}
+
+        def _reload_factor(own_dims: set) -> float:
+            """
+            Compute how many extra times a tensor is reloaded due to
+            foreign dimensions interleaved between its own dimensions.
+            """
+            # Find positions of own dims in the loop order
+            own_positions = [i for i, d in enumerate(order) if d in own_dims]
+            if not own_positions:
+                return 1.0
+
+            outermost = min(own_positions)
+            innermost = max(own_positions)
+
+            # Foreign dims that fall strictly between outermost and innermost
+            reload = 1.0
+            for i in range(outermost + 1, innermost):
+                if order[i] not in own_dims:
+                    reload *= n_tiles[order[i]]
+            return reload
+
+        weight_reload = _reload_factor(weight_dims)
+        input_reload  = _reload_factor(input_dims)
+        output_reload = _reload_factor(output_dims)
+
+        # Base tensor sizes (total elements, not per-tile)
+        weight_size = float(k * c * kh * kw)
+        input_size  = float(c * h_in * w_in)
+        output_size = float(k * h_out * w_out)
+
+        # DRAM traffic = tensor_size × reload_factor
+        # (each reload is a full read of the tensor from DRAM)
+        weight_traffic = weight_size * weight_reload
+        input_traffic  = input_size  * input_reload
+        # Output: partial sums must be read back and written again on
+        # each reload (read-modify-write), so each extra reload costs 2×
+        output_traffic = output_size * (1.0 + (output_reload - 1.0) * 2.0)
+
+        total_traffic = weight_traffic + input_traffic + output_traffic
+
+        # Reuse factors (higher = better; 1.0 = no reuse)
+        weight_reuse = 1.0 / weight_reload if weight_reload > 0 else 1.0
+        input_reuse  = 1.0 / input_reload  if input_reload  > 0 else 1.0
+
+        return {
+            "loop_order":      order,
+            "weight_reuse":    weight_reuse,
+            "input_reuse":     input_reuse,
+            "output_reuse":    1.0 / output_reload if output_reload > 0 else 1.0,
+            "weight_accesses": int(weight_traffic),
+            "input_accesses":  int(input_traffic),
+            "output_accesses": int(output_traffic),
+        }
+
     def analyze_memory_access_pattern(
         self,
         loop_order: LoopOrder6D,
@@ -232,57 +347,23 @@ class LoopOptimizer:
         tile_config: Optional[LoopTileConfig] = None,
     ) -> Dict:
         """
-        Count unique memory accesses for weights, inputs and outputs.
+        Compute DRAM traffic for a given loop order using an analytical
+        model that properly accounts for data reuse and eviction.
 
-        Reuse factor = total_elements / unique_accesses.
-        Higher reuse means fewer trips to DRAM.
+        Loop ordering controls which data stays resident in the on-chip
+        scratchpad (inner loops) vs what gets evicted and must be
+        re-fetched from DRAM (outer loops). Different orderings produce
+        significantly different off-chip memory traffic.
         """
-        iterations = self.generate_iteration_sequence(
-            loop_order, k, c, kh, kw, h_in, w_in, tile_config
+        if tile_config is None:
+            tile_config = LoopTileConfig(
+                tile_hin=self.array_height,
+                tile_win=self.array_width,
+            )
+
+        return self._compute_dram_traffic(
+            loop_order.value, k, c, kh, kw, h_in, w_in, tile_config
         )
-
-        weight_accesses: set = set()
-        input_accesses: set = set()
-        output_accesses: set = set()
-
-        for it in iterations:
-            # Weights  W[k, c, kh, kw]
-            for ki in range(it["k_start"], it["k_end"]):
-                for ci in range(it["c_start"], it["c_end"]):
-                    weight_accesses.add((ki, ci, it["kh"], it["kw"]))
-
-            # Inputs   X[h_in, w_in, c]
-            for hi in range(it["h_in_start"], it["h_in_end"]):
-                for wi in range(it["w_in_start"], it["w_in_end"]):
-                    for ci in range(it["c_start"], it["c_end"]):
-                        input_accesses.add((hi, wi, ci))
-
-            # Outputs  Y[h_out, w_out, k]
-            for ki in range(it["k_start"], it["k_end"]):
-                for hi in range(it["h_out_start"], it["h_out_end"]):
-                    for wi in range(it["w_out_start"], it["w_out_end"]):
-                        output_accesses.add((hi, wi, ki))
-
-        # Theoretical unique element counts
-        h_out = h_in - kh + 1
-        w_out = w_in - kw + 1
-        max_weight = k * c * kh * kw
-        max_input = h_in * w_in * c
-        max_output = h_out * w_out * k
-
-        w_u = len(weight_accesses)
-        i_u = len(input_accesses)
-        o_u = len(output_accesses)
-
-        return {
-            "loop_order": loop_order.value,
-            "weight_reuse": max_weight / w_u if w_u else 0,
-            "input_reuse": max_input / i_u if i_u else 0,
-            "output_reuse": max_output / o_u if o_u else 0,
-            "weight_accesses": w_u,
-            "input_accesses": i_u,
-            "output_accesses": o_u,
-        }
 
     # ------------------------------------------------------------------
     # Find optimal order
@@ -400,61 +481,9 @@ class LoopOptimizer:
                 tile_win=self.array_width,
             )
 
-        h_out = h_in - kh + 1
-        w_out = w_in - kw + 1
-
-        def ranges(dim: str):
-            if dim == "K":   return range(0, k,   tile_config.tile_k)
-            if dim == "C":   return range(0, c,   tile_config.tile_c)
-            if dim == "KH":  return range(kh)
-            if dim == "KW":  return range(kw)
-            if dim == "H_in": return range(0, h_in, tile_config.tile_hin)
-            if dim == "W_in": return range(0, w_in, tile_config.tile_win)
-            raise ValueError(dim)
-
-        weight_accesses: set = set()
-        input_accesses:  set = set()
-        output_accesses: set = set()
-
-        for i0 in ranges(perm[0]):
-            for i1 in ranges(perm[1]):
-                for i2 in ranges(perm[2]):
-                    for i3 in ranges(perm[3]):
-                        for i4 in ranges(perm[4]):
-                            for i5 in ranges(perm[5]):
-                                coords = {perm[j]: [i0,i1,i2,i3,i4,i5][j]
-                                          for j in range(6)}
-                                k_s  = coords["K"];   c_s  = coords["C"]
-                                kh_i = coords["KH"];  kw_i = coords["KW"]
-                                h_s  = coords["H_in"]; w_s  = coords["W_in"]
-
-                                for ki in range(k_s, min(k_s + tile_config.tile_k, k)):
-                                    for ci in range(c_s, min(c_s + tile_config.tile_c, c)):
-                                        weight_accesses.add((ki, ci, kh_i, kw_i))
-                                for hi in range(h_s, min(h_s + tile_config.tile_hin, h_in)):
-                                    for wi in range(w_s, min(w_s + tile_config.tile_win, w_in)):
-                                        for ci in range(c_s, min(c_s + tile_config.tile_c, c)):
-                                            input_accesses.add((hi, wi, ci))
-                                h_o = max(0, h_s - kh_i)
-                                w_o = max(0, w_s - kw_i)
-                                for ki in range(k_s, min(k_s + tile_config.tile_k, k)):
-                                    for hi in range(h_o, min(h_o + tile_config.tile_hin, h_out)):
-                                        for wi in range(w_o, min(w_o + tile_config.tile_win, w_out)):
-                                            output_accesses.add((hi, wi, ki))
-
-        max_w = k * c * kh * kw
-        max_i = h_in * w_in * c
-        max_o = h_out * w_out * k
-        w_u = len(weight_accesses); i_u = len(input_accesses); o_u = len(output_accesses)
-        return {
-            "loop_order":     perm,
-            "weight_reuse":   max_w / w_u if w_u else 0,
-            "input_reuse":    max_i / i_u if i_u else 0,
-            "output_reuse":   max_o / o_u if o_u else 0,
-            "weight_accesses": w_u,
-            "input_accesses":  i_u,
-            "output_accesses": o_u,
-        }
+        return self._compute_dram_traffic(
+            perm, k, c, kh, kw, h_in, w_in, tile_config
+        )
 
     # ------------------------------------------------------------------
     # Pretty-print analysis

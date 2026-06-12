@@ -1,0 +1,22 @@
+workload,mode,quality_pct,best_dram_traffic
+ResNet-50,Exhaustive Search,100.0,100887.6836734694
+ResNet-50,Heuristic Search,98.43206480293065,102494.73469387754
+ResNet-50,Gradient Descent,100.0,100887.6836734694
+BERT-Large,Exhaustive Search,100.0,8450.0
+BERT-Large,Heuristic Search,96.99265381083563,8712.0
+BERT-Large,Gradient Descent,100.0,8450.0
+3D-UNet,Exhaustive Search,100.0,131378.5
+3D-UNet,Heuristic Search,99.3049781553765,132298.0
+3D-UNet,Gradient Descent,100.0,131378.5
+RNN-T,Exhaustive Search,100.0,4228.0
+RNN-T,Heuristic Search,96.7948717948718,4368.0
+RNN-T,Gradient Descent,100.0,4228.0
+DLRM,Exhaustive Search,100.0,2306.0
+DLRM,Heuristic Search,89.797507788162,2568.0
+DLRM,Gradient Descent,100.0,2306.0
+VGG-16,Exhaustive Search,100.0,26300.081632653062
+VGG-16,Heuristic Search,94.30498313975272,27888.326530612245
+VGG-16,Gradient Descent,100.0,26300.081632653062
+GPT-2/Transformer,Exhaustive Search,100.0,6338.666666666667
+GPT-2/Transformer,Heuristic Search,96.94127243066885,6538.666666666667
+GPT-2/Transformer,Gradient Descent,100.0,6338.666666666667

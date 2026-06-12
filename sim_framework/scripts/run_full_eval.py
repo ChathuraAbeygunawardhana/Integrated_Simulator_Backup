@@ -1144,7 +1144,7 @@ def exp6_loop_optimization(workloads: List[Dict], opt: Dict,
     Sub-experiments:
       6a. Loop order impact (Best / Default / Worst) — per-layer and per-DNN
       6b. Blocking & inter-layer reuse
-      6c. Search efficiency (Exhaustive / Heuristic / Systolic Optimizer)
+      6c. Search efficiency (Exhaustive / Heuristic / Gradient Descent)
     """
     print(f"\n{'='*60}")
     print("Exp 6 — Loop Optimisation")
@@ -1166,17 +1166,21 @@ def exp6_loop_optimization(workloads: List[Dict], opt: Dict,
     # 6a — Loop order per-layer and per-network
     # ------------------------------------------------------------------
     print("  6a: Loop orders …")
+    # Use small tile sizes to ensure tiling happens and loop ordering
+    # has a visible effect.  Large tiles (= array size) cause everything
+    # to fit in one tile → no reordering effect at all.
+    LOOP_TILE = LoopTileConfig(tile_k=4, tile_c=4, tile_hin=4, tile_win=4)
+
     lo_rows = []
     for wl in workloads:
         dims = wl["loop_dims"]
         K, C, KH, KW = dims["K"], dims["C"], dims["KH"], dims["KW"]
         H, W = dims["H_in"], dims["W_in"]
-        tile  = LoopTileConfig(tile_k=arr, tile_c=arr, tile_hin=arr, tile_win=arr)
 
         # Compute all 6 named orders
         order_results = {}
         for order in LoopOrder6D:
-            r = lo.analyze_memory_access_pattern(order, K, C, KH, KW, H, W, tile)
+            r = lo.analyze_memory_access_pattern(order, K, C, KH, KW, H, W, LOOP_TILE)
             order_results[order] = r
 
         default_acc = (order_results[DEFAULT_ORDER]["weight_accesses"] +
@@ -1222,9 +1226,8 @@ def exp6_loop_optimization(workloads: List[Dict], opt: Dict,
     _save(df_tagged, out_dir / "best_default_worst.csv")
 
     # Chart 1: normalised off-chip accesses Best/Default/Worst per layer per workload
+    # Run the analysis for each actual layer (not just the network-level loop_dims)
     for wl in workloads:
-        sub = df_tagged[df_tagged["workload"] == wl["name"]]
-        # Use the network's 4 representative layers (use layer 1-4 as proxies)
         fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
         x = np.arange(4)
         bw = 0.28
@@ -1233,15 +1236,38 @@ def exp6_loop_optimization(workloads: List[Dict], opt: Dict,
             "Worst Loop Order":   C_WORST_LO,
             "Best Loop Order":    C_BEST_LO,
         }
+
+        # Compute per-layer best/default/worst using actual layer dimensions
+        layer_data = {}  # tag → [val_layer1, val_layer2, ...]
+        for tag in tag_colors:
+            layer_data[tag] = []
+
+        for li, layer in enumerate(wl["layers"]):
+            K  = layer.weight_k;  C  = layer.weight_c
+            KH = layer.weight_kh; KW = layer.weight_kw
+            H  = layer.input_height; W = layer.input_width
+
+            # Analyse all 6 loop orders for this specific layer
+            layer_results = {}
+            for order in LoopOrder6D:
+                r = lo.analyze_memory_access_pattern(order, K, C, KH, KW, H, W, LOOP_TILE)
+                total = r["weight_accesses"] + r["input_accesses"] + r["output_accesses"]
+                layer_results[order] = total
+
+            default_traffic = layer_results[DEFAULT_ORDER]
+            best_traffic    = min(layer_results.values())
+            worst_traffic   = max(layer_results.values())
+
+            layer_data["Default Loop Order"].append(
+                default_traffic / default_traffic if default_traffic > 0 else 1.0)
+            layer_data["Worst Loop Order"].append(
+                worst_traffic / default_traffic if default_traffic > 0 else 1.0)
+            layer_data["Best Loop Order"].append(
+                best_traffic / default_traffic if default_traffic > 0 else 1.0)
+
         for ti, (tag, color) in enumerate(tag_colors.items()):
-            vals = []
-            for li in range(4):
-                row = sub[sub["tag"] == tag]
-                if len(row) > 0:
-                    vals.append(row.iloc[0]["norm_offchip"])
-                else:
-                    vals.append(1.0)
-            ax.bar(x + ti * bw - bw, vals, width=bw, color=color, label=tag)
+            ax.bar(x + ti * bw - bw, layer_data[tag], width=bw,
+                   color=color, label=tag)
         ax.set_xlabel("Layer")
         ax.set_ylabel("Normalised Off-Chip Memory Accesses")
         ax.set_title(f"Loop Order Impact — {wl['name']}")
@@ -1469,7 +1495,7 @@ def exp6_loop_optimization(workloads: List[Dict], opt: Dict,
         for mode, label in [
             (SearchMode.EXHAUSTIVE, "Exhaustive Search"),
             (SearchMode.HEURISTIC,  "Heuristic Search"),
-            (SearchMode.GRADIENT,   "Systolic Optimizer"),
+            (SearchMode.GRADIENT,   "Gradient Descent"),
         ]:
             r = results_by_mode[mode]
             quality = exh_traffic / r["best_traffic"] * 100  # % of exhaustive best
@@ -1489,7 +1515,7 @@ def exp6_loop_optimization(workloads: List[Dict], opt: Dict,
     search_colors = {
         "Exhaustive Search":  C_EXHAUSTIVE,
         "Heuristic Search":   C_HEURISTIC,
-        "Systolic Optimizer": C_SYSTOLIC,
+        "Gradient Descent":   C_SYSTOLIC,
     }
     mode_labels = list(search_colors.keys())
 
@@ -1512,45 +1538,45 @@ def exp6_loop_optimization(workloads: List[Dict], opt: Dict,
     ax.grid(True, alpha=0.3, axis="y")
     _savefig(fig, fig_dir / "search_time_to_solution.png")
 
-    # Chart 6: quality of results (estimated vs actual accuracy proxy)
-    # Python model "estimated" = heuristic traffic; RTL "actual" = exhaustive result
-    hw_verify_rows = []
+    # Chart 6: Search quality — how close each search mode's result is
+    # to the exhaustive optimum (expressed as DRAM traffic ratio)
+    quality_rows = []
     for wl in workloads:
-        for ti, test_label in enumerate(["Test 1", "Test 2", "Test 3", "Test 4"], 1):
-            row_h = df_search[(df_search["workload"] == wl["name"]) &
-                               (df_search["mode"] == "Heuristic Search")]
-            row_e = df_search[(df_search["workload"] == wl["name"]) &
-                               (df_search["mode"] == "Exhaustive Search")]
-            if len(row_h) == 0 or len(row_e) == 0:
+        row_e = df_search[(df_search["workload"] == wl["name"]) &
+                           (df_search["mode"] == "Exhaustive Search")]
+        if len(row_e) == 0:
+            continue
+        exh_best = row_e.iloc[0]["best_dram_traffic"]
+        for mode_label in ["Exhaustive Search", "Heuristic Search", "Gradient Descent"]:
+            row_m = df_search[(df_search["workload"] == wl["name"]) &
+                               (df_search["mode"] == mode_label)]
+            if len(row_m) == 0:
                 continue
-            est = row_h.iloc[0]["best_dram_traffic"] / 1e6
-            act = row_e.iloc[0]["best_dram_traffic"] / 1e6
-            # Add a small test-case-dependent noise for realism
-            noise = 0.97 + 0.06 * ti / 4
-            hw_verify_rows.append({
+            quality_rows.append({
                 "workload":          wl["name"],
-                "test_case":         test_label,
-                "python_estimated":  est * noise,
-                "rtl_actual":        act,
+                "mode":              mode_label,
+                "quality_pct":       exh_best / row_m.iloc[0]["best_dram_traffic"] * 100,
+                "best_dram_traffic": row_m.iloc[0]["best_dram_traffic"],
             })
-    df_hv = pd.DataFrame(hw_verify_rows)
-    _save(df_hv, out_dir / "execution_cycles_estimated_vs_actual.csv")
+    df_quality = pd.DataFrame(quality_rows)
+    _save(df_quality, out_dir / "search_quality.csv")
 
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
-    x = np.arange(4)
-    bw = 0.35
-    wl0 = workloads[0]["name"]
-    sub_hv = df_hv[df_hv["workload"] == wl0]
-    ax.bar(x - bw / 2, sub_hv["python_estimated"].values,
-           width=bw, color="#76b7b2", label="Python Model (Estimated)")
-    ax.bar(x + bw / 2, sub_hv["rtl_actual"].values,
-           width=bw, color="#1a3a5c", label="Cocotb RTL (Actual)")
-    ax.set_xlabel("Test Case")
-    ax.set_ylabel("Execution Cycles (M)")
-    ax.set_title(f"Execution Cycles: Estimated vs Actual — {wl0}")
+    x = np.arange(len(workloads))
+    bw = 0.28
+    for mi, (mode_label, color) in enumerate(search_colors.items()):
+        vals = [df_quality[(df_quality["workload"] == wl["name"]) &
+                            (df_quality["mode"] == mode_label)]["quality_pct"].values
+                for wl in workloads]
+        vals = [v[0] if len(v) > 0 else 0.0 for v in vals]
+        ax.bar(x + mi * bw - bw, vals, width=bw, color=color, label=mode_label)
+    ax.set_xlabel("Workload")
+    ax.set_ylabel("Solution Quality (% of Exhaustive Optimum)")
+    ax.set_title("Search Quality — Exhaustive vs Heuristic vs Gradient Descent")
     ax.set_xticks(x)
-    ax.set_xticklabels(["Test 1", "Test 2", "Test 3", "Test 4"])
+    ax.set_xticklabels([wl["name"] for wl in workloads], rotation=15, ha="right")
     ax.legend()
+    ax.set_ylim(80, 102)
     ax.grid(True, alpha=0.3, axis="y")
     _savefig(fig, fig_dir / "estimated_vs_actual_cycles.png")
 

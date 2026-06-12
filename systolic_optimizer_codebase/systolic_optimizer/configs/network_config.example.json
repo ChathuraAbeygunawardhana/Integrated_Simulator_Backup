@@ -1,0 +1,62 @@
+{
+  "network_name": "SimpleCNN",
+  "array_config": {
+    "height": 4,
+    "width": 4,
+    "clock_mhz": 100
+  },
+  "layers": [
+    {
+      "id": 0,
+      "name": "conv1",
+      "type": "Conv2D",
+      "input_shape": [
+        28,
+        28,
+        1
+      ],
+      "output_shape": [
+        28,
+        28,
+        8
+      ],
+      "kernel": [
+        3,
+        3
+      ],
+      "loop_order": "K_C_Spatial",
+      "loop_order_code": 0,
+      "memory": {
+        "input_base": 268435456,
+        "weight_base": 268500992,
+        "output_base": 268566528
+      }
+    },
+    {
+      "id": 1,
+      "name": "conv2",
+      "type": "Conv2D",
+      "input_shape": [
+        14,
+        14,
+        8
+      ],
+      "output_shape": [
+        14,
+        14,
+        16
+      ],
+      "kernel": [
+        3,
+        3
+      ],
+      "loop_order": "K_C_Spatial",
+      "loop_order_code": 0,
+      "memory": {
+        "input_base": 268566528,
+        "weight_base": 268632064,
+        "output_base": 268697600
+      }
+    }
+  ]
+}

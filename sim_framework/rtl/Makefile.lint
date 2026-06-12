@@ -1,0 +1,21 @@
+# Lint the unified RTL tree. Requires verilator >= 5.0.
+ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
+
+VERILATOR ?= verilator
+
+# All SV/V sources, in compile order.
+SOURCES := $(shell grep -v '^\s*\#\|^\s*$$' $(ROOT)/rtl/all_sources.f | sed 's|^|$(ROOT)/|')
+
+lint:
+	cd $(ROOT) && $(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME -Wno-UNUSED \
+	    --top-module single_dnn_top \
+	    -I$(ROOT)/rtl/pkg -I$(ROOT)/rtl/interfaces \
+	    $(SOURCES)
+
+lint-multi:
+	cd $(ROOT) && $(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME -Wno-UNUSED \
+	    --top-module multi_dnn_top \
+	    -I$(ROOT)/rtl/pkg -I$(ROOT)/rtl/interfaces \
+	    $(SOURCES)
+
+.PHONY: lint lint-multi

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Vivado artefacts
+vivado_project_*/
+*.jou
+*.log
+*.pb
+*.str
+xsim_work/
+
+# CocoTB artefacts
+sim_build/
+results.xml
+
+# Generated outputs (keep examples, ignore runtime dumps)
+tb_generated/
+*_dump/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store

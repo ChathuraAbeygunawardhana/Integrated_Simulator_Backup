@@ -1,0 +1,24 @@
+# Cocotb + Verilator makefile for any test_*.py under tb/.
+# Invoked indirectly by pysim/runner.py via `make -C tb -f Makefile.cocotb run`.
+
+FRAMEWORK_ROOT ?= $(abspath ..)
+
+SIM           ?= verilator
+TOPLEVEL_LANG ?= verilog
+TOPLEVEL      ?= single_dnn_top
+MODULE        ?= test_single_dnn_smoke
+SIM_WORK      ?= $(FRAMEWORK_ROOT)/build/work
+
+VERILOG_SOURCES = $(shell sed -e 's/\#.*//' -e '/^\s*$$/d' $(FRAMEWORK_ROOT)/rtl/all_sources.f | sed "s|^|$(FRAMEWORK_ROOT)/|")
+
+COMPILE_ARGS += --trace --trace-structs -Wno-DECLFILENAME -Wno-UNUSED
+COMPILE_ARGS += -I$(FRAMEWORK_ROOT)/rtl/pkg
+COMPILE_ARGS += -I$(FRAMEWORK_ROOT)/rtl/interfaces
+
+# cocotb library plumbing
+include $(shell cocotb-config --makefiles)/Makefile.sim
+
+run: sim
+
+clean::
+	rm -rf sim_build

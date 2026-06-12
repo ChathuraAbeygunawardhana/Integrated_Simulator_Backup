@@ -1,0 +1,22 @@
+{
+  "name": "layer_01",
+  "input_channels": 288,
+  "input_height": 1,
+  "input_width": 1,
+  "weight_k": 4,
+  "weight_c": 288,
+  "weight_kh": 1,
+  "weight_kw": 1,
+  "output_channels": 4,
+  "output_height": 1,
+  "output_width": 1,
+  "input_base_addr": 0,
+  "weight_base_addr": 65536,
+  "output_base_addr": 131072,
+  "tile_row": 0,
+  "tile_col_start": 0,
+  "tile_ch_start": 0,
+  "ws_input_ch": 0,
+  "ws_kernel_row": 0,
+  "ws_kernel_col_start": 0
+}

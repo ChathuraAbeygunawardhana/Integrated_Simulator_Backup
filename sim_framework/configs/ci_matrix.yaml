@@ -1,0 +1,15 @@
+# CI verification matrix. Each entry expands to a SimConfig that
+# scripts/iterate_until_pass.py runs.
+matrix:
+  - { top: single_dnn_top, dataflow: OS, memory: STAMP, array_height: 4, array_width: 4 }
+  - { top: single_dnn_top, dataflow: OS, memory: PAGED, array_height: 4, array_width: 4 }
+  - { top: single_dnn_top, dataflow: IS, memory: STAMP, array_height: 4, array_width: 4 }
+  - { top: single_dnn_top, dataflow: IS, memory: PAGED, array_height: 4, array_width: 4 }
+  - { top: single_dnn_top, dataflow: WS, memory: STAMP, array_height: 4, array_width: 4 }
+  - { top: single_dnn_top, dataflow: WS, memory: PAGED, array_height: 4, array_width: 4 }
+  - { top: single_dnn_top, dataflow: OS, memory: STAMP, array_height: 8, array_width: 8 }
+  - { top: multi_dnn_top, dataflow: OS, memory: STAMP, array_height: 4, array_width: 4, scheduler: FIFO }
+  - { top: multi_dnn_top, dataflow: OS, memory: STAMP, array_height: 4, array_width: 4, scheduler: SJF }
+  - { top: multi_dnn_top, dataflow: OS, memory: STAMP, array_height: 4, array_width: 4, scheduler: AIMT }
+  - { top: multi_dnn_top, dataflow: OS, memory: STAMP, array_height: 4, array_width: 4, scheduler: BATCHDNN }
+  - { top: multi_dnn_top, dataflow: OS, memory: STAMP, array_height: 4, array_width: 4, scheduler: BATCHDNN_PP }

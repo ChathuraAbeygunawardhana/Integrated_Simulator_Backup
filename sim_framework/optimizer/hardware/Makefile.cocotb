@@ -1,0 +1,59 @@
+# Makefile for CocoTB Simulation of Systolic Array with TensorFlow Tests
+# ========================================================================
+
+# Simulation settings
+SIM ?= verilator
+TOPLEVEL_LANG ?= verilog
+
+# Design files
+VERILOG_SOURCES += $(PWD)/systolic_spad_top.sv
+VERILOG_SOURCES += $(PWD)/scratchpad_ctrl.sv
+VERILOG_SOURCES += $(PWD)/scratchpad.sv
+VERILOG_SOURCES += $(PWD)/axi_mem_bridge.sv
+VERILOG_SOURCES += $(PWD)/page_table.v
+
+# Testbench
+MODULE = test_systolic_cocotb
+TOPLEVEL = systolic_spad_top
+
+# Test configuration (set these when running)
+export CONFIG_FILE ?= config.json
+export INPUT_FILE ?= input.hex
+export WEIGHT_FILE ?= weights.hex
+export EXPECTED_FILE ?= expected_output.hex
+
+# Verilator-specific options
+ifeq ($(SIM), verilator)
+    EXTRA_ARGS += --trace --trace-structs
+    COMPILE_ARGS += -Wno-WIDTH -Wno-UNOPTFLAT -Wno-CASEINCOMPLETE
+    COMPILE_ARGS += --timing  # For newer Verilator versions
+endif
+
+# Include cocotb makefiles
+include $(shell cocotb-config --makefiles)/Makefile.sim
+
+# Targets
+.PHONY: test clean run_layer
+
+# Run test for a specific layer
+run_layer:
+	@echo "Running test for layer: $(LAYER_DIR)"
+	$(MAKE) \
+		CONFIG_FILE=$(LAYER_DIR)/config.json \
+		INPUT_FILE=$(LAYER_DIR)/input.hex \
+		WEIGHT_FILE=$(LAYER_DIR)/weights.hex \
+		EXPECTED_FILE=$(LAYER_DIR)/expected_output.hex
+
+# Run all layers
+run_all_layers:
+	@for layer_dir in tb_generated/layer_*; do \
+		echo "Testing $$layer_dir..."; \
+		$(MAKE) run_layer LAYER_DIR=$$layer_dir || exit 1; \
+	done
+
+clean::
+	rm -rf __pycache__
+	rm -rf sim_build
+	rm -f results.xml
+	rm -f *.vcd *.fst
+	rm -f input_mem.hex weight_mem.hex config.txt

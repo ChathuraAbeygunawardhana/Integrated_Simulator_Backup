@@ -1,0 +1,43 @@
+# =============================================================================
+# Quadramind Integrated Simulator — Python dependencies
+# =============================================================================
+# Install via:  pip install -r requirements.txt
+# Or let install_deps.sh / install_deps.ps1 do it inside a managed venv.
+#
+# Version pins follow what is tested in sim_framework/.venv (Python 3.12).
+# Loosen the pins only if you are sure your version is compatible.
+# =============================================================================
+
+# ── RTL simulation ────────────────────────────────────────────────────────────
+# cocotb 2.x requires Verilator >= 5.0 and Python 3.10 – 3.13.
+# Python 3.14+ is not yet supported by any released cocotb build.
+# Use Python 3.12 (recommended) when creating the venv.
+# install_deps.sh / install_deps.ps1 automatically select the right interpreter.
+cocotb>=2.0.1
+cocotb-bus>=0.3.0
+find-libpython>=0.5.1       # runtime library locator used by cocotb on Linux
+
+# ── Numerics / golden reference ──────────────────────────────────────────────
+numpy>=2.0.0
+
+# ── Deep-learning model extraction (generate_config.py --tf-model) ───────────
+# Use tensorflow-cpu unless you have a CUDA-capable GPU; saves ~2 GB of download.
+tensorflow-cpu>=2.18.0
+# tensorflow>=2.18.0        # ← uncomment instead if you want GPU support
+
+# ── Config / serialisation ────────────────────────────────────────────────────
+pyyaml>=6.0.3
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest>=9.0.3
+pytest-cov>=4.1.0
+
+# ── Reporting / visualisation (optional but used by scripts/gen_report.py) ───
+matplotlib>=3.7.0
+pandas>=2.0.0
+tqdm>=4.65.0
+
+# ── Dev / lint (optional) ─────────────────────────────────────────────────────
+black>=23.3.0
+flake8>=6.0.0
+mypy>=1.3.0

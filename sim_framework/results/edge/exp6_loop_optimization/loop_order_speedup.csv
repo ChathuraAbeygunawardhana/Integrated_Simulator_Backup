@@ -1,0 +1,8 @@
+workload,default_norm,optimized_speedup
+MobileNetV2,1.0,100.0
+EfficientDet-Lite0,1.0,100.0
+DS-CNN-KWS,1.0,100.0
+ResNet-18,1.0,100.0
+TinyBERT,1.0,100.0
+U-Net,1.0,100.0
+SSD-MobileNet,1.0,100.0

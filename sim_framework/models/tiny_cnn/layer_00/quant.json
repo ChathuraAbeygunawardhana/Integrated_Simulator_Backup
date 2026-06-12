@@ -1,0 +1,6 @@
+{
+  "fp_total_bits": 32,
+  "input_frac_bits": 28,
+  "weight_frac_bits": 31,
+  "expected_frac_bits": 28
+}

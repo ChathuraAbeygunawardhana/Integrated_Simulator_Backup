@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(& \"D:\\\\Quadramind_Integrated_Simulator\\\\Integrated_Simulator\\\\.venv\\\\Scripts\\\\python.exe\" -m ensurepip --version 2>&1)",
+      "PowerShell(python -m ensurepip --version 2>&1)",
+      "PowerShell(& \"D:\\\\Quadramind_Integrated_Simulator\\\\Integrated_Simulator\\\\.venv\\\\Scripts\\\\python.exe\" -m ensurepip --upgrade; if \\($LASTEXITCODE -eq 0\\) { & \"D:\\\\Quadramind_Integrated_Simulator\\\\Integrated_Simulator\\\\.venv\\\\Scripts\\\\pip.exe\" --version } else { \"ensurepip failed with exit $LASTEXITCODE\" })",
+      "PowerShell(Out-Null *)",
+      "PowerShell(python -m venv \"D:\\\\Quadramind_Integrated_Simulator\\\\Integrated_Simulator\\\\.venv\"; $LASTEXITCODE)",
+      "PowerShell(deactivate *)",
+      "PowerShell(where.exe vivado 2>$null; $env:XILINX_VIVADO; $env:VIVADO_PATH; [System.Environment]::GetEnvironmentVariable\\(\"XILINX_VIVADO\",\"Machine\"\\); [System.Environment]::GetEnvironmentVariable\\(\"XILINX_VIVADO\",\"User\"\\))",
+      "PowerShell(& \"D:\\\\Quadramind_Integrated_Simulator\\\\Integrated_Simulator\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import numpy; print\\('numpy', numpy.__version__\\)\" 2>&1)",
+      "PowerShell(python -c \"import sys; print\\(sys.executable\\)\" 2>&1)",
+      "PowerShell(python -c \"import numpy; print\\('numpy', numpy.__version__\\)\" 2>&1)",
+      "PowerShell(& \"D:\\\\Quadramind_Integrated_Simulator\\\\Integrated_Simulator\\\\.venv\\\\Scripts\\\\python.exe\" -m pip install --upgrade pip setuptools wheel 2>&1 | Select-Object -Last 3)"
+    ]
+  }
+}

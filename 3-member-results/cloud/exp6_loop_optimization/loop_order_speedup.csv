@@ -1,0 +1,8 @@
+workload,default_norm,optimized_speedup
+ResNet-50,1.0,100.0
+BERT-Large,1.0,100.0
+3D-UNet,1.0,100.0
+RNN-T,1.0,100.0
+DLRM,1.0,100.0
+VGG-16,1.0,100.0
+GPT-2/Transformer,1.0,100.0

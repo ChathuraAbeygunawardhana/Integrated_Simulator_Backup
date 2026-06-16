@@ -1,0 +1,5 @@
+config,array_size,lut_util,dsp_util,bram_util,op_freq_norm
+Config A (Small),4,6,5,8,92
+Config B (Medium),8,22,18,25,82
+Config C (Large),16,76,58,70,72
+Config D (Max),32,92,89,92,63
